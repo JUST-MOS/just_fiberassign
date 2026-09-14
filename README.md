@@ -36,10 +36,10 @@ which reads `/path/to/data/name_focalplane.csv`.
 The focal-plane layout can be displayed with:
 
 ```python
-show_focalplane(text = None, text_scale = 0.9, text_dx = 0.0, text_dy = 0.0, text_buffer = 3.0, font = 'STIXGeneral', weight = 1000, logo = True, logo_scale = 0.7, logo_dx = 0.0, logo_dy = 180.0, logo_buffer = 1.0, dpi = 250, save_path = None, logo_path = ..., focalplane_path = ...)
+show_focalplane(text = None, text_scale = 0.9, text_dx = 0.0, text_dy = 0.0, text_buffer = 3.0, font = 'STIXGeneral', weight = 1000, text_ec = '0.75', text_fc = '0.75', logo = True, logo_scale = 0.7, logo_dx = 0.0, logo_dy = 180.0, logo_buffer = 1.0, logo_ec = '0.75', logo_fc = '#A71E2D', ec = '0.75', fc = 'none', dpi = 250, transparent = False, save_path = None, logo_path = ..., focalplane_path = ...)
 ```
 
-`text_scale`, `text_dx`, `text_dy`, and `text_buffer` control the text size, position, and spacing. `font` and `weight` set the typeface. The equivalent `logo_*` arguments control the logo. `dpi` sets the saved resolution, `save_path` sets the output directory, and `logo_path` and `focalplane_path` replace the default input files.
+`text_scale`, `text_dx`, `text_dy`, and `text_buffer` control the text size, position, and spacing; `font` and `weight` set the typeface, while `text_ec` and `text_fc` set the text edge and face colors. The equivalent `logo_*` arguments control the logo. `ec` and `fc` set the edge and face colors of the remaining fibers. `dpi` sets the saved resolution, `transparent` controls the saved background, `save_path` sets the output directory, and `logo_path` and `focalplane_path` replace the default input files.
 
 ## Examples
 

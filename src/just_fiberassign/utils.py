@@ -96,9 +96,10 @@ def radec2xy(telra, teldec, ra, dec, telescope, rotation = 0.0, spec_dir = DATA_
 
     return rotate_xy(np.column_stack((radius * np.cos(q), radius * np.sin(q))), -rotation)
 
-def show_focalplane(text = None, text_scale = 0.9, text_dx = 0.0, text_dy = 0.0, text_buffer = 3.0, font = 'STIXGeneral', weight = 1000, 
-                    logo = True, logo_scale = 0.7, logo_dx = 0.0, logo_dy = 180.0, logo_buffer = 1.0, dpi = 250,
-                    save_path = None, logo_path = DATA_DIR / 'sjtu_astro_logo.png', focalplane_path = DATA_DIR / 'just_focalplane.csv'):
+def show_focalplane(text = None, text_scale = 0.9, text_dx = 0.0, text_dy = 0.0, text_buffer = 3.0, font = 'STIXGeneral', weight = 1000,
+                    text_ec = '0.75', text_fc = '0.75', logo = True, logo_scale = 0.7, logo_dx = 0.0, logo_dy = 180.0, logo_buffer = 1.0,
+                    logo_ec = '0.75', logo_fc = '#A71E2D', ec = '0.75', fc = 'none', dpi = 250, transparent = False, save_path = None,
+                    logo_path = DATA_DIR / 'sjtu_astro_logo.png', focalplane_path = DATA_DIR / 'just_focalplane.csv'):
     xy = np.loadtxt(focalplane_path, delimiter = ',', usecols = (0, 1))
     mn, mx = xy.min(0), xy.max(0)
     c, d = 0.5 * (mn + mx), 0.515 * max(mx - mn)
@@ -126,22 +127,23 @@ def show_focalplane(text = None, text_scale = 0.9, text_dx = 0.0, text_dy = 0.0,
             mask[inside] |= alpha[v[inside].astype(int), u[inside].astype(int)] > 0.5
         return mask
 
-    edgecolors = np.full(len(xy), '0.75', dtype = object)
+    edgecolors = np.full(len(xy), ec, dtype = object)
+    facecolors = np.full(len(xy), fc, dtype = object)
     if logo:
-        edgecolors[logo_mask()] = '#A71E2D'
+        mask = logo_mask()
+        edgecolors[mask], facecolors[mask] = logo_ec, logo_fc
+    if text is not None:
+        mask = text_mask()
+        edgecolors[mask], facecolors[mask] = text_ec, text_fc
 
     plt.figure(figsize = (5, 5))
     plt.axes([0.05, 0.05, 0.9, 0.9])
-    plt.scatter(xy[:, 0], xy[:, 1], s = 25, facecolors = 'none',
+    plt.scatter(xy[:, 0], xy[:, 1], s = 25, facecolors = facecolors,
                 edgecolors = edgecolors, linewidths = 0.25)
-    if text is not None:
-        mask = text_mask()
-        plt.scatter(xy[mask, 0], xy[mask, 1], s = 25, facecolors = '0.75',
-                    edgecolors = edgecolors[mask], linewidths = 0.25)
     plt.xlim(c[0] - d, c[0] + d)
     plt.ylim(c[1] - d, c[1] + d)
     plt.gca().set_aspect('equal')
     plt.axis('off')
     if save_path is not None:
-        plt.savefig(Path(save_path) / 'just_focalplane.png', dpi = dpi)
+        plt.savefig(Path(save_path) / 'just_focalplane.png', dpi = dpi, transparent = transparent)
     plt.show()
