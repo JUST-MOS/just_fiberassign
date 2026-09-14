@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+/notebooks/
+/temp/
+/demo/output/*
+!/demo/output/.gitkeep
