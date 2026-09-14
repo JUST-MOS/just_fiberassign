@@ -9,7 +9,7 @@ from scipy.spatial import KDTree
 from tqdm import tqdm
 
 DEMO_DIR = Path(__file__).resolve().parent
-CATALOG_FILE = DEMO_DIR / 'output/fba_gal_mock_rlim20p5_ra0_4_dec0_4_tile_ipack_1pass_ra0_4_dec0_4.npz'
+CATALOG_FILE = DEMO_DIR / 'output/cat_gal_mock_rlim20p5_ra0_4_dec0_4_tile_ipack_1pass_ra0_4_dec0_4.npz'
 
 def _paircount(x1, x2, rp_edges, pi_edges, w1 = None, w2 = None, autocorr = False,
                ijack1 = None, ijack2 = None, njack = 0, thread = 16, chunk = 2048, tree = None):
@@ -145,11 +145,11 @@ def run_auto(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
         input_file = output_dir / catalog_file
 
     stem = input_file.stem
-    if stem.startswith('fba_catalog_'):
-        stem = stem[len('fba_catalog_'):]
+    if stem.startswith('cat_'):
+        stem = stem[len('cat_'):]
 
-    auto_file = output_dir / f'auto_{stem}.npz'
-    plot_file = output_dir / f'auto_{stem}.png'
+    auto_file = output_dir / f'wp_auto_{stem}.npz'
+    plot_file = output_dir / f'wp_auto_{stem}.png'
 
     if auto_file.is_file():
         print(f'Loading cached data: {auto_file.name}')
@@ -169,7 +169,7 @@ def run_auto(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
 
         rp, wp_patrolled, wp_patrolled_err = measure_wp(
             random_coord, random_z, patrolled_coord, patrolled_z,
-            njack = 32, thread = thread, label = 'Patrolled'
+            njack = 32, thread = thread, label = 'Truth'
         )
         _, wp_fba, wp_fba_err = measure_wp(
             random_coord, random_z, assigned_coord, assigned_z,
@@ -202,8 +202,8 @@ def run_auto(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
     plt.figure(figsize = (5, 5))
     plt.axes([0.14, 0.14 + 0.83 / 4, 0.83, 0.83 * 3 / 4])
 
-    plt.fill_between(rp, wp_patrolled - wp_patrolled_err, wp_patrolled + wp_patrolled_err, color = 'gray', alpha = 0.2, lw = 0)
-    plt.plot(rp, wp_patrolled, c = 'gray', lw = 1.0, ls = '--', alpha = 0.5, label = 'Patrolled')
+    plt.plot(rp, wp_patrolled, c = 'gray', lw = 1.0, ls = '--', alpha = 0.5, label = 'Truth')
+    plt.fill_between(rp, wp_patrolled - wp_patrolled_err, wp_patrolled + wp_patrolled_err, color = 'gray', alpha = 0.2, lw = 0, zorder = 0)
 
     plt.errorbar(rp, wp_fba, yerr = wp_fba_err, c = b_, lw = 1.0, fmt = 'o', ms = 5, mfc = 'None', mew = 1.0, zorder = 0,
                  path_effects = [path_effects.withStroke(linewidth = 1.5, foreground = 'w')], label = 'FBA')

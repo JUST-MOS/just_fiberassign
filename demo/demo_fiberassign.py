@@ -76,7 +76,7 @@ def run_fiberassign(target_file = TARGET_FILE, tile_file = TILE_FILE, algorithm 
 
     output_dir = DEMO_DIR / 'output'
     output_dir.mkdir(exist_ok = True)
-    output_file = output_dir / f'fba_map_{Path(target_file).stem}__{Path(tile_file).stem}.png'
+    output_file = output_dir / f'fba_{Path(target_file).stem}__{Path(tile_file).stem}.png'
 
     plt.savefig(output_file, dpi = dpi, transparent = False, facecolor = 'w')
     plt.show()

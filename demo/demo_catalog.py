@@ -25,7 +25,7 @@ def run_catalog(target_file = TARGET_FILE, tile_file = TILE_FILE, thread = 16, d
     output_dir = DEMO_DIR / 'output'
     output_dir.mkdir(exist_ok = True)
     stem = f'{Path(target_file).stem}_{Path(tile_file).stem}'
-    output_file = output_dir / f'fba_{stem}.npz'
+    output_file = output_dir / f'cat_{stem}.npz'
 
     np.savez_compressed(
         output_file,
@@ -78,7 +78,7 @@ def run_catalog(target_file = TARGET_FILE, tile_file = TILE_FILE, thread = 16, d
         plt.gca().xaxis.set_major_locator(MaxNLocator(integer = True))
         plt.gca().yaxis.set_major_locator(MaxNLocator(integer = True))
 
-    plot_file = output_dir / f'fba_catalog_{stem}.png'
+    plot_file = output_dir / f'cat_{stem}.png'
     plt.savefig(plot_file, dpi = dpi, transparent = False, facecolor = 'w')
     plt.show()
 

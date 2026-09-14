@@ -1,8 +1,12 @@
 import io
 import numpy as np
+import matplotlib.pyplot as plt
 import requests
 
 from functools import lru_cache
+from matplotlib.font_manager import FontProperties
+from matplotlib.textpath import TextPath
+from matplotlib.transforms import Affine2D
 from pathlib import Path
 from scipy.interpolate import interp1d
 
@@ -91,3 +95,53 @@ def radec2xy(telra, teldec, ra, dec, telescope, rotation = 0.0, spec_dir = DATA_
     q = np.arctan2(xyz[2], -xyz[1])
 
     return rotate_xy(np.column_stack((radius * np.cos(q), radius * np.sin(q))), -rotation)
+
+def show_focalplane(text = None, text_scale = 0.9, text_dx = 0.0, text_dy = 0.0, text_buffer = 3.0, font = 'STIXGeneral', weight = 1000, 
+                    logo = True, logo_scale = 0.7, logo_dx = 0.0, logo_dy = 180.0, logo_buffer = 1.0, dpi = 250,
+                    save_path = None, logo_path = DATA_DIR / 'sjtu_astro_logo.png', focalplane_path = DATA_DIR / 'just_focalplane.csv'):
+    xy = np.loadtxt(focalplane_path, delimiter = ',', usecols = (0, 1))
+    mn, mx = xy.min(0), xy.max(0)
+    c, d = 0.5 * (mn + mx), 0.515 * max(mx - mn)
+
+    def text_mask():
+        tp = TextPath((0, 0), text, size = 1,
+                      prop = FontProperties(family = font, weight = weight))
+        bb = tp.get_extents()
+        tp = Affine2D().translate(-0.5 * (bb.x0 + bb.x1), -0.5 * (bb.y0 + bb.y1)).scale(
+            text_scale * 2 * np.hypot(xy[:, 0], xy[:, 1]).max() / max(bb.width, bb.height)
+        ).translate(text_dx, text_dy).transform_path(tp)
+        return np.any([tp.contains_points(xy + dxy) for dxy in
+                       [[0, 0], [text_buffer, 0], [-text_buffer, 0], [0, text_buffer], [0, -text_buffer]]], axis = 0)
+
+    def logo_mask():
+        alpha = plt.imread(logo_path)
+        alpha = alpha[:, :, 3] if alpha.shape[-1] == 4 else np.any(alpha[:, :, :3] < 0.99, axis = 2)
+        h, w = alpha.shape
+        mask = np.zeros(len(xy), dtype = bool)
+        for dxy in [[0, 0], [logo_buffer, 0], [-logo_buffer, 0], [0, logo_buffer], [0, -logo_buffer]]:
+            u = ((xy[:, 0] + dxy[0] - c[0] - logo_dx) / (logo_scale * 2 * d) + 0.5) * (w - 1)
+            v = (0.5 - (xy[:, 1] + dxy[1] - c[1] - logo_dy) /
+                 (logo_scale * 2 * d * h / w)) * (h - 1)
+            inside = (u >= 0) & (u < w) & (v >= 0) & (v < h)
+            mask[inside] |= alpha[v[inside].astype(int), u[inside].astype(int)] > 0.5
+        return mask
+
+    edgecolors = np.full(len(xy), '0.75', dtype = object)
+    if logo:
+        edgecolors[logo_mask()] = '#A71E2D'
+
+    plt.figure(figsize = (5, 5))
+    plt.axes([0.05, 0.05, 0.9, 0.9])
+    plt.scatter(xy[:, 0], xy[:, 1], s = 25, facecolors = 'none',
+                edgecolors = edgecolors, linewidths = 0.25)
+    if text is not None:
+        mask = text_mask()
+        plt.scatter(xy[mask, 0], xy[mask, 1], s = 25, facecolors = '0.75',
+                    edgecolors = edgecolors[mask], linewidths = 0.25)
+    plt.xlim(c[0] - d, c[0] + d)
+    plt.ylim(c[1] - d, c[1] + d)
+    plt.gca().set_aspect('equal')
+    plt.axis('off')
+    if save_path is not None:
+        plt.savefig(Path(save_path) / 'just_focalplane.png', dpi = dpi)
+    plt.show()
