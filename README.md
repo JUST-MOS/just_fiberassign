@@ -95,22 +95,6 @@ python examples/demo_wp_validation.py
 python examples/demo_wp_validation.py -catalog <catalog_file> -thread 16 -dpi 250
 ```
 
-Within Jupyter, interactive plotting can be enabled with:
-
-```python
-# Enable the Jupyter Matplotlib widget backend
-%matplotlib widget
-
-# Run with progressive figure updates
-run_fiberassign(
-    target_file, tile_file, algorithm = 'greedy-classic',
-    n_random = 5000, thread = 16, dpi = 250,
-    fancy = True, notebook = True
-)
-```
-
-With `fancy = True`, each panel is progressively replaced as the corresponding calculation becomes available.
-
 Generated catalogs and figures are saved to:
 
 ```text
