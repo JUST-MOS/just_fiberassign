@@ -81,7 +81,7 @@ python examples/demo_fiberassign.py \
     -target <target_file> -tile <tile_file> -algorithm greedy-classic \
     -n_random 5000 -thread 16 -dpi 250
 
-# Progressively update the figure in a desktop Python session
+# Progressively update the figure with focal-plane loading indicators
 python examples/demo_fiberassign.py -fancy
 ```
 
@@ -108,6 +108,8 @@ run_fiberassign(
     fancy = True, notebook = True
 )
 ```
+
+With `fancy = True`, each panel is progressively replaced as the corresponding calculation becomes available.
 
 Generated catalogs and figures are saved to:
 

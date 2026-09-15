@@ -1,12 +1,15 @@
 import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 from just_fiberassign.catalog import gen_catalog, gen_random
-from just_fiberassign.utils import load_focalplane, load_target, load_tile
+from just_fiberassign.utils import load_focalplane, load_target, load_tile, show_focalplane
 
+from concurrent.futures import ThreadPoolExecutor
 from matplotlib.ticker import MaxNLocator
 from pathlib import Path
+from queue import Empty, Queue
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
 TARGET_FILE = EXAMPLES_DIR / 'input/target/gal_mock_rlim20p5_ra0_4_dec0_4.npz'
@@ -89,13 +92,23 @@ def run_fiberassign(target_file = TARGET_FILE, tile_file = TILE_FILE, algorithm 
         ax.xaxis.set_major_locator(MaxNLocator(integer = True))
         ax.yaxis.set_major_locator(MaxNLocator(integer = True))
 
+    placeholder = None
+
+    def move_placeholder(i):
+        nonlocal placeholder
+        if placeholder is not None:
+            placeholder.remove()
+        placeholder = show_focalplane('JUST', ax = axes[i], size = 7.5) if i < 4 else None
+
     if fancy:
+        move_placeholder(0)
         if not notebook:
             plt.ion()
             plt.show(block = False)
         else:
             plt.show()
         _refresh(fig, notebook = notebook)
+        time.sleep(1.0)
 
     pass_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     axes[0].scatter(target_coord[:, 0], target_coord[:, 1], s = 0.25, marker = '.', lw = 0, color = 'gray')
@@ -112,38 +125,94 @@ def run_fiberassign(target_file = TARGET_FILE, tile_file = TILE_FILE, algorithm 
                  path_effects = [path_effects.withStroke(linewidth = 1, foreground = 'w')])
 
     if fancy:
+        move_placeholder(1)
         _refresh(fig, notebook = notebook)
+        last_update = time.monotonic()
 
-    assigned_mask, iip_weight, pip_bitweights, patrolled_mask = gen_catalog(
-        fiber_coord, tile_coord, tile_rotation, target_coord, target_pri, target_sub,
-        algorithm = algorithm, thread = thread
-    )
+    def draw_patrolled(mask):
+        axes[1].scatter(target_coord[:, 0], target_coord[:, 1], s = 0.25, marker = '.', lw = 0, color = 'gray')
+        axes[1].scatter(target_coord[mask, 0], target_coord[mask, 1],
+                        s = 1.0, marker = '.', lw = 0, color = b_)
+        axes[1].text(0.97, 0.97, rf'$N_{{g, \, \mathrm{{patrolled}}}} = {np.sum(mask)}$',
+                     transform = axes[1].transAxes, ha = 'right', va = 'top', fontsize = 12,
+                     path_effects = [path_effects.withStroke(linewidth = 1, foreground = 'w')])
+        if fancy:
+            move_placeholder(2)
 
-    axes[1].scatter(target_coord[:, 0], target_coord[:, 1], s = 0.25, marker = '.', lw = 0, color = 'gray')
-    axes[1].scatter(target_coord[patrolled_mask, 0], target_coord[patrolled_mask, 1],
-                    s = 1.0, marker = '.', lw = 0, color = b_)
-    axes[1].text(0.97, 0.97, rf'$N_{{g, \, \mathrm{{patrolled}}}} = {np.sum(patrolled_mask)}$',
-                 transform = axes[1].transAxes, ha = 'right', va = 'top', fontsize = 12,
-                 path_effects = [path_effects.withStroke(linewidth = 1, foreground = 'w')])
-
-    axes[2].scatter(target_coord[:, 0], target_coord[:, 1], s = 0.25, marker = '.', lw = 0, color = 'gray')
-    axes[2].scatter(target_coord[assigned_mask, 0], target_coord[assigned_mask, 1],
-                    s = 1.0, marker = '.', lw = 0, color = r_)
-    axes[2].text(0.97, 0.97, rf'$N_{{g, \, \mathrm{{assigned}}}} = {np.sum(assigned_mask)}$',
-                 transform = axes[2].transAxes, ha = 'right', va = 'top', fontsize = 12,
-                 path_effects = [path_effects.withStroke(linewidth = 1, foreground = 'w')])
-    axes[2].text(0.98, 0.02,
-                 rf'$f_\mathrm{{observed}} = {np.sum(assigned_mask) / np.sum(patrolled_mask) * 100:.1f}\%, \,\,\,$'
-                 rf'$f_\mathrm{{assigned}} = {np.sum(assigned_mask) / len(tile_coord) / len(fiber_coord) * 100:.1f}\%$',
-                 transform = axes[2].transAxes, ha = 'right', va = 'bottom', fontsize = 12, linespacing = 1.5,
-                 path_effects = [path_effects.withStroke(linewidth = 1, foreground = 'w')])
+    def draw_assigned(assigned, patrolled):
+        axes[2].scatter(target_coord[:, 0], target_coord[:, 1], s = 0.25, marker = '.', lw = 0, color = 'gray')
+        axes[2].scatter(target_coord[assigned, 0], target_coord[assigned, 1],
+                        s = 1.0, marker = '.', lw = 0, color = r_)
+        axes[2].text(0.97, 0.97, rf'$N_{{g, \, \mathrm{{assigned}}}} = {np.sum(assigned)}$',
+                     transform = axes[2].transAxes, ha = 'right', va = 'top', fontsize = 12,
+                     path_effects = [path_effects.withStroke(linewidth = 1, foreground = 'w')])
+        axes[2].text(0.98, 0.02,
+                     rf'$f_\mathrm{{observed}} = {np.sum(assigned) / np.sum(patrolled) * 100:.1f}\%, \,\,\,$'
+                     rf'$f_\mathrm{{assigned}} = {np.sum(assigned) / len(tile_coord) / len(fiber_coord) * 100:.1f}\%$',
+                     transform = axes[2].transAxes, ha = 'right', va = 'bottom', fontsize = 12, linespacing = 1.5,
+                     path_effects = [path_effects.withStroke(linewidth = 1, foreground = 'w')])
+        if fancy:
+            move_placeholder(3)
 
     if fancy:
-        _refresh(fig, notebook = notebook)
+        events, pending = Queue(), []
+        patrolled_live = None
 
-    random_coord, random_z, random_patrol = gen_random(
-        fiber_coord, tile_coord, tile_rotation, target_z, density = n_random
-    )
+        def catalog_progress(stage, value):
+            if stage in ('patrolled', 'assigned'):
+                events.put((stage, value))
+
+        def update():
+            nonlocal patrolled_live, last_update
+
+            try:
+                while True:
+                    stage, value = events.get_nowait()
+                    if stage == 'patrolled':
+                        patrolled_live = value
+                    pending.append((stage, value))
+            except Empty:
+                pass
+
+            if pending and time.monotonic() - last_update >= 1.0:
+                stage, value = pending.pop(0)
+                draw_patrolled(value) if stage == 'patrolled' else draw_assigned(value, patrolled_live)
+                _refresh(fig, notebook = notebook)
+                last_update = time.monotonic()
+
+        def wait(future):
+            while not future.done():
+                update()
+                time.sleep(0.05)
+            update()
+            return future.result()
+
+        with ThreadPoolExecutor(max_workers = 1) as executor:
+            assigned_mask, iip_weight, pip_bitweights, patrolled_mask = wait(executor.submit(
+                gen_catalog, fiber_coord, tile_coord, tile_rotation, target_coord, target_pri, target_sub,
+                algorithm = algorithm, thread = thread, progress = catalog_progress
+            ))
+
+            random_coord, random_z, random_patrol = wait(executor.submit(
+                gen_random, fiber_coord, tile_coord, tile_rotation, target_z, density = n_random
+            ))
+
+            while pending:
+                update()
+                time.sleep(0.05)
+
+    else:
+        assigned_mask, iip_weight, pip_bitweights, patrolled_mask = gen_catalog(
+            fiber_coord, tile_coord, tile_rotation, target_coord, target_pri, target_sub,
+            algorithm = algorithm, thread = thread
+        )
+
+        draw_patrolled(patrolled_mask)
+        draw_assigned(assigned_mask, patrolled_mask)
+
+        random_coord, random_z, random_patrol = gen_random(
+            fiber_coord, tile_coord, tile_rotation, target_z, density = n_random
+        )
 
     np.savez_compressed(
         catalog_file,
@@ -152,6 +221,11 @@ def run_fiberassign(target_file = TARGET_FILE, tile_file = TILE_FILE, algorithm 
         assigned_iip_weight = iip_weight[assigned_mask], assigned_pip_bitweights = pip_bitweights[assigned_mask],
         random_coord = random_coord[random_patrol], random_z = random_z[random_patrol]
     )
+
+    if fancy:
+        while time.monotonic() - last_update < 1.0:
+            time.sleep(0.05)
+        move_placeholder(4)
 
     axes[3].scatter(random_coord[random_patrol, 0], random_coord[random_patrol, 1],
                     s = 1.0, marker = '.', lw = 0, color = g_)

@@ -99,7 +99,7 @@ def radec2xy(telra, teldec, ra, dec, telescope, rotation = 0.0, spec_dir = DATA_
 def show_focalplane(text = None, text_scale = 0.9, text_dx = 0.0, text_dy = 0.0, text_buffer = 3.0, font = 'STIXGeneral', weight = 1000,
                     text_ec = '0.75', text_fc = '0.75', logo = True, logo_scale = 0.7, logo_dx = 0.0, logo_dy = 180.0, logo_buffer = 1.0,
                     logo_ec = '0.75', logo_fc = '#A71E2D', ec = '0.75', fc = 'none', dpi = 250, transparent = False, save_path = None,
-                    logo_path = DATA_DIR / 'sjtu_astro_logo.png', focalplane_path = DATA_DIR / 'just_focalplane.csv'):
+                    logo_path = DATA_DIR / 'sjtu_astro_logo.png', focalplane_path = DATA_DIR / 'just_focalplane.csv', ax = None, size = 25):
     xy = np.loadtxt(focalplane_path, delimiter = ',', usecols = (0, 1))
     mn, mx = xy.min(0), xy.max(0)
     c, d = 0.5 * (mn + mx), 0.515 * max(mx - mn)
@@ -132,18 +132,26 @@ def show_focalplane(text = None, text_scale = 0.9, text_dx = 0.0, text_dy = 0.0,
     if logo:
         mask = logo_mask()
         edgecolors[mask], facecolors[mask] = logo_ec, logo_fc
-    if text is not None:
+    if text:
         mask = text_mask()
         edgecolors[mask], facecolors[mask] = text_ec, text_fc
 
-    plt.figure(figsize = (5, 5))
-    plt.axes([0.05, 0.05, 0.9, 0.9])
-    plt.scatter(xy[:, 0], xy[:, 1], s = 25, facecolors = facecolors,
-                edgecolors = edgecolors, linewidths = 0.25)
-    plt.xlim(c[0] - d, c[0] + d)
-    plt.ylim(c[1] - d, c[1] + d)
-    plt.gca().set_aspect('equal')
-    plt.axis('off')
-    if save_path is not None:
-        plt.savefig(Path(save_path) / 'just_focalplane.png', dpi = dpi, transparent = transparent)
-    plt.show()
+    own_figure = ax is None
+    if own_figure:
+        plt.figure(figsize = (5, 5))
+        ax = plt.axes([0.05, 0.05, 0.9, 0.9])
+    else:
+        ax = ax.inset_axes([0.05, 0.05, 0.9, 0.9])
+
+    ax.scatter(xy[:, 0], xy[:, 1], s = size, facecolors = facecolors, edgecolors = edgecolors, linewidths = 0.25)
+    ax.set_xlim(c[0] - d, c[0] + d)
+    ax.set_ylim(c[1] - d, c[1] + d)
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    if own_figure:
+        if save_path is not None:
+            plt.savefig(Path(save_path) / 'just_focalplane.png', dpi = dpi, transparent = transparent)
+        plt.show()
+
+    return ax

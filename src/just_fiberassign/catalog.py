@@ -19,13 +19,20 @@ def _iip_batch(args):
     return nassigned, pip_bitweights, len(seeds)
 
 def gen_catalog(fiber_coord, tile_coord, tile_rotation, target_coord, target_pri, target_sub,
-                algorithm = 'greedy-classic', r_patrol = 6.0, r_exclude = 1.6, telescope = 'just', thread = 16):
+                algorithm = 'greedy-classic', r_patrol = 6.0, r_exclude = 1.6,
+                telescope = 'just', thread = 16, progress = None):
     target_pri, target_sub = np.asarray(target_pri), np.asarray(target_sub)
     prepared = _prepare_fiberassign(fiber_coord, tile_coord, tile_rotation, target_coord,
                                     r_patrol = r_patrol, r_exclude = r_exclude, telescope = telescope)
+    patrolled_mask = prepared[2]
+    if progress is not None:
+        progress('patrolled', patrolled_mask)
+
     solver_state = _prepare_solver(prepared, algorithm)
     assigned_mask = _fiberassign_prepared(prepared, target_pri, target_sub, algorithm, solver_state, thread = thread)
-    patrolled_mask = prepared[2]
+    if progress is not None:
+        progress('assigned', assigned_mask)
+
     nassigned = assigned_mask.astype(np.uint16)
     pip_bitweights = np.zeros((len(target_coord), 2), dtype = np.uint64)
 
@@ -39,14 +46,17 @@ def gen_catalog(fiber_coord, tile_coord, tile_rotation, target_coord, target_pri
     else:
         batches = [seeds for seeds in np.array_split(np.arange(1, 129), nworker) if len(seeds)]
         jobs = [(prepared, target_pri, len(target_sub), algorithm, seeds) for seeds in batches]
-        with ProcessPoolExecutor(max_workers = len(batches)) as executor, tqdm(total = 128, desc = 'Alt Subpriority Reassignments') as progress:
+        with ProcessPoolExecutor(max_workers = len(batches)) as executor, tqdm(total = 128, desc = 'Alt Subpriority Reassignments') as progress_bar:
             for count, bitweights, nseed in executor.map(_iip_batch, jobs):
                 nassigned += count
                 pip_bitweights |= bitweights
-                progress.update(nseed)
+                progress_bar.update(nseed)
 
     iip_weight = np.zeros(len(target_coord), dtype = float)
     iip_weight[assigned_mask] = 129.0 / nassigned[assigned_mask]
+
+    if progress is not None:
+        progress('weights', (iip_weight, pip_bitweights))
 
     return assigned_mask, iip_weight, pip_bitweights, patrolled_mask
 
