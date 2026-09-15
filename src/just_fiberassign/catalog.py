@@ -10,10 +10,13 @@ def _iip_batch(args):
     prepared, target_pri, nsub, algorithm, seeds = args
     solver_state = _prepare_solver(prepared, algorithm)
     nassigned = np.zeros(prepared[-1], dtype = np.uint16)
+    pip_bitweights = np.zeros((prepared[-1], 2), dtype = np.uint64)
     for seed in seeds:
         target_sub = np.random.default_rng(seed).random(nsub)
-        nassigned += _fiberassign_prepared(prepared, target_pri, target_sub, algorithm, solver_state, thread = 1)
-    return nassigned, len(seeds)
+        assigned = _fiberassign_prepared(prepared, target_pri, target_sub, algorithm, solver_state, thread = 1)
+        nassigned += assigned
+        pip_bitweights[assigned, (seed - 1) // 64] |= np.uint64(1 << ((seed - 1) % 64))
+    return nassigned, pip_bitweights, len(seeds)
 
 def gen_catalog(fiber_coord, tile_coord, tile_rotation, target_coord, target_pri, target_sub,
                 algorithm = 'greedy-classic', r_patrol = 6.0, r_exclude = 1.6, telescope = 'just', thread = 16):
@@ -24,24 +27,28 @@ def gen_catalog(fiber_coord, tile_coord, tile_rotation, target_coord, target_pri
     assigned_mask = _fiberassign_prepared(prepared, target_pri, target_sub, algorithm, solver_state, thread = thread)
     patrolled_mask = prepared[2]
     nassigned = assigned_mask.astype(np.uint16)
+    pip_bitweights = np.zeros((len(target_coord), 2), dtype = np.uint64)
 
     nworker = min(max(int(thread), 1), 128)
     if nworker == 1:
-        for seed in tqdm(range(1, 129), total = 128, desc = 'IIP Weights'):
+        for seed in tqdm(range(1, 129), total = 128, desc = 'Alt Subpriority Reassignments'):
             target_sub_i = np.random.default_rng(seed).random(len(target_sub))
-            nassigned += _fiberassign_prepared(prepared, target_pri, target_sub_i, algorithm, solver_state, thread = 1)
+            assigned = _fiberassign_prepared(prepared, target_pri, target_sub_i, algorithm, solver_state, thread = 1)
+            nassigned += assigned
+            pip_bitweights[assigned, (seed - 1) // 64] |= np.uint64(1 << ((seed - 1) % 64))
     else:
         batches = [seeds for seeds in np.array_split(np.arange(1, 129), nworker) if len(seeds)]
         jobs = [(prepared, target_pri, len(target_sub), algorithm, seeds) for seeds in batches]
-        with ProcessPoolExecutor(max_workers = len(batches)) as executor, tqdm(total = 128, desc = 'IIP Weights') as progress:
-            for count, nseed in executor.map(_iip_batch, jobs):
+        with ProcessPoolExecutor(max_workers = len(batches)) as executor, tqdm(total = 128, desc = 'Alt Subpriority Reassignments') as progress:
+            for count, bitweights, nseed in executor.map(_iip_batch, jobs):
                 nassigned += count
+                pip_bitweights |= bitweights
                 progress.update(nseed)
 
     iip_weight = np.zeros(len(target_coord), dtype = float)
     iip_weight[assigned_mask] = 129.0 / nassigned[assigned_mask]
 
-    return assigned_mask, iip_weight, patrolled_mask
+    return assigned_mask, iip_weight, pip_bitweights, patrolled_mask
 
 def _sample_cap(ra, dec, radius, size, rng):
     ra, dec, radius = np.radians([ra, dec, radius])

@@ -17,4 +17,4 @@ demo = ["astropy<6.1; python_version<'3.10'", "astropy>=6.1; python_version>='3.
 where = ["src"]
 
 [tool.setuptools.package-data]
-just_fiberassign = ["data/*.csv", "data/*.txt"]
+just_fiberassign = ["data/*.csv", "data/*.png", "data/*.txt"]

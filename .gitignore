@@ -10,5 +10,5 @@ dist/
 venv/
 /notebooks/
 /temp/
-/demo/output/*
-!/demo/output/.gitkeep
+/examples/output/*
+!/examples/output/.gitkeep
