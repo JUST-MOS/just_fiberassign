@@ -1,9 +1,9 @@
 ## Installation
 
-Install directly from GitHub:
+Install directly from GitHub with the demonstration dependencies:
 
 ```bash
-pip install git+https://github.com/JUST-MOS/just_fiberassign
+pip install "just_fiberassign[demo] @ git+https://github.com/JUST-MOS/just_fiberassign"
 ```
 
 ## Usage
@@ -76,7 +76,7 @@ Run the fiber-assignment and catalog demonstration with:
 # Default fiber assignment
 python examples/demo_fiberassign.py
 
-# Custom target, tiling, algorithm, random density, workers, and resolution
+# Custom target, tiling, algorithm, random density, threads, and resolution
 python examples/demo_fiberassign.py \
     -target <target_file> -tile <tile_file> -algorithm greedy-classic \
     -n_random 5000 -thread 16 -dpi 250
@@ -91,7 +91,7 @@ Run the projected-correlation-function validation with:
 # Use the default generated catalog
 python examples/demo_wp_validation.py
 
-# Custom catalog, workers, and resolution
+# Custom catalog, threads, and resolution
 python examples/demo_wp_validation.py -catalog <catalog_file> -thread 16 -dpi 250
 ```
 

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 
-from just_fiberassign.catalog import gen_catalog, gen_random
+from just_fiberassign.catalog import gen_catalog, gen_random, gen_wang
 from just_fiberassign.utils import load_focalplane, load_target, load_tile, show_focalplane
 
 from concurrent.futures import ThreadPoolExecutor
@@ -197,6 +197,12 @@ def run_fiberassign(target_file = TARGET_FILE, tile_file = TILE_FILE, algorithm 
                 gen_random, fiber_coord, tile_coord, tile_rotation, target_z, density = n_random
             ))
 
+            angular_sep, angular_dd_weight, angular_dr_weight = wait(executor.submit(
+                gen_wang, target_coord[patrolled_mask], target_coord[assigned_mask],
+                iip_weight[assigned_mask], pip_bitweights[assigned_mask],
+                random_coord[random_patrol], thread = thread
+            ))
+
             while pending:
                 update()
                 time.sleep(0.05)
@@ -214,12 +220,19 @@ def run_fiberassign(target_file = TARGET_FILE, tile_file = TILE_FILE, algorithm 
             fiber_coord, tile_coord, tile_rotation, target_z, density = n_random
         )
 
+        angular_sep, angular_dd_weight, angular_dr_weight = gen_wang(
+            target_coord[patrolled_mask], target_coord[assigned_mask],
+            iip_weight[assigned_mask], pip_bitweights[assigned_mask],
+            random_coord[random_patrol], thread = thread
+        )
+
     np.savez_compressed(
         catalog_file,
         patrolled_coord = target_coord[patrolled_mask], patrolled_z = target_z[patrolled_mask],
         assigned_coord = target_coord[assigned_mask], assigned_z = target_z[assigned_mask],
         assigned_iip_weight = iip_weight[assigned_mask], assigned_pip_bitweights = pip_bitweights[assigned_mask],
-        random_coord = random_coord[random_patrol], random_z = random_z[random_patrol]
+        random_coord = random_coord[random_patrol], random_z = random_z[random_patrol],
+        angular_sep = angular_sep, angular_dd_weight = angular_dd_weight, angular_dr_weight = angular_dr_weight
     )
 
     if fancy:

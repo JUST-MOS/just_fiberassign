@@ -54,8 +54,9 @@ def _pairnorm(w1, w2, autocorr, ijack1, ijack2, njack):
 
 def _paircount(x1, x2, rp_edges, pi_edges, w1 = None, w2 = None, autocorr = False,
                ijack1 = None, ijack2 = None, njack = 0, thread = 16, chunk = 2048, tree = None,
-               pip_bitweights = None):
+               pip_bitweights = None, angular_sep = None, angular_weight = None):
     weighted = w1 is not None
+    angular = angular_sep is not None and angular_weight is not None
     w1 = np.ones(len(x1)) if w1 is None else np.asarray(w1)
     w2 = w1 if autocorr else (np.ones(len(x2)) if w2 is None else np.asarray(w2))
     ijack2 = ijack1 if autocorr else ijack2
@@ -65,7 +66,15 @@ def _paircount(x1, x2, rp_edges, pi_edges, w1 = None, w2 = None, autocorr = Fals
         nreal = 1 + 64 * pip_bitweights.shape[1]
         pip_joint = _pip_joint(nreal)
 
-    nweight = 1 + int(weighted) + int(pip_bitweights is not None)
+    if angular:
+        cos_angular_sep = np.cos(np.radians(np.asarray(angular_sep)))
+        order = np.argsort(cos_angular_sep)
+        cos_angular_sep = cos_angular_sep[order]
+        angular_weight = np.asarray(angular_weight)[order]
+        radius1 = np.linalg.norm(x1, axis = 1)
+        radius2 = radius1 if autocorr else np.linalg.norm(x2, axis = 1)
+
+    nweight = 1 + int(weighted) + int(pip_bitweights is not None) + int(angular)
     tree = KDTree(x2) if tree is None else tree
     nrp, npi = len(rp_edges) - 1, len(pi_edges) - 1
     nbin, rmax = nrp * npi, np.hypot(rp_edges[-1], pi_edges[-1])
@@ -104,6 +113,10 @@ def _paircount(x1, x2, rp_edges, pi_edges, w1 = None, w2 = None, autocorr = Fals
         if pip_bitweights is not None:
             nij = 1 + _popcount(pip_bitweights[i] & pip_bitweights[j]).sum(axis = 1)
             pair_weights.append(nreal / nij)
+        if angular:
+            cos_theta = np.einsum('ij,ij->i', x1[i], x2[j]) / (radius1[i] * radius2[j])
+            wang = np.interp(np.clip(cos_theta, -1.0, 1.0), cos_angular_sep, angular_weight, left = 1.0, right = 1.0)
+            pair_weights.append(pair_weights[-1] * wang)
 
         for k, pair_weight in enumerate(pair_weights):
             count[k] += np.bincount(ibin, weights = pair_weight, minlength = nbin)
@@ -147,6 +160,12 @@ def _paircount(x1, x2, rp_edges, pi_edges, w1 = None, w2 = None, autocorr = Fals
             auto_norm.append(a)
             cross_norm.append(c)
 
+    if angular:
+        norm.append(norm[-1])
+        if njack:
+            auto_norm.append(auto_norm[-1].copy())
+            cross_norm.append(cross_norm[-1].copy())
+
     norm = np.asarray(norm)
     count = count.reshape(nweight, nrp, npi) / norm[:, None, None]
 
@@ -165,6 +184,7 @@ def _paircount(x1, x2, rp_edges, pi_edges, w1 = None, w2 = None, autocorr = Fals
     return count, jack_count
 
 def measure_wp(random_coord, random_z, data_coord, data_z, weight = None, pip_bitweights = None,
+               angular_sep = None, angular_dd_weight = None, angular_dr_weight = None,
                rp_edges = np.logspace(np.log10(0.1), np.log10(10.0), 11), pi_edges = np.arange(0.0, 41.0, 1.0),
                njack = 32, thread = 16, label = ''):
     ra, dec = np.radians(random_coord).T
@@ -186,18 +206,23 @@ def measure_wp(random_coord, random_z, data_coord, data_z, weight = None, pip_bi
 
     with tqdm(total = 3, desc = label) as progress:
         dd, dd_jack = _paircount(data_xyz, data_xyz, rp_edges, pi_edges, weight, weight, True,
-                                 data_jack, data_jack, njack, thread, pip_bitweights = pip_bitweights)
+                                 data_jack, data_jack, njack, thread, pip_bitweights = pip_bitweights,
+                                 angular_sep = angular_sep, angular_weight = angular_dd_weight)
         progress.update()
 
         dr, dr_jack = _paircount(data_xyz, random_xyz, rp_edges, pi_edges, weight, None, False,
-                                 data_jack, random_jack, njack, thread, tree = random_tree)
+                                 data_jack, random_jack, njack, thread, tree = random_tree,
+                                 angular_sep = angular_sep, angular_weight = angular_dr_weight)
         progress.update()
 
         rr, rr_jack = _paircount(random_xyz, random_xyz, rp_edges, pi_edges, autocorr = True,
                                  ijack1 = random_jack, ijack2 = random_jack, njack = njack, thread = thread, tree = random_tree)
         progress.update()
 
-    if len(dd) == 3:
+    if len(dd) == 4:
+        dr = dr[[0, 1, 1, 2]]
+        dr_jack = dr_jack[[0, 1, 1, 2]]
+    elif len(dd) == 3:
         dr = dr[[0, 1, 1]]
         dr_jack = dr_jack[[0, 1, 1]]
 
@@ -240,15 +265,20 @@ def run_wp_validation(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
     auto_file = output_dir / f'wp_auto_{stem}.npz'
     plot_file = output_dir / f'wp_auto_{stem}.png'
 
+    cached = False
     if auto_file.is_file():
-        print(f'Loading cached data: {auto_file.name}')
         with np.load(auto_file) as data:
-            rp = data['rp']
-            wp_tru, wp_tru_err = data['wp_tru'], data['wp_tru_err']
-            wp_fba, wp_fba_err = data['wp_fba'], data['wp_fba_err']
-            wp_fba_iip, wp_fba_iip_err = data['wp_fba_iip'], data['wp_fba_iip_err']
-            wp_fba_pip, wp_fba_pip_err = data['wp_fba_pip'], data['wp_fba_pip_err']
-    else:
+            if 'wp_fba_pip_ang' in data.files:
+                print(f'Loading cached data: {auto_file.name}')
+                rp = data['rp']
+                wp_tru, wp_tru_err = data['wp_tru'], data['wp_tru_err']
+                wp_fba, wp_fba_err = data['wp_fba'], data['wp_fba_err']
+                wp_fba_iip, wp_fba_iip_err = data['wp_fba_iip'], data['wp_fba_iip_err']
+                wp_fba_pip, wp_fba_pip_err = data['wp_fba_pip'], data['wp_fba_pip_err']
+                wp_fba_pip_ang, wp_fba_pip_ang_err = data['wp_fba_pip_ang'], data['wp_fba_pip_ang_err']
+                cached = True
+
+    if not cached:
         print('Warning: For larger catalogs, use an optimized package, e.g., pycorr.')
 
         with np.load(input_file) as data:
@@ -257,6 +287,9 @@ def run_wp_validation(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
             assigned_coord, assigned_z = data['assigned_coord'], data['assigned_z']
             assigned_iip_weight = data['assigned_iip_weight']
             assigned_pip_bitweights = data['assigned_pip_bitweights']
+            angular_sep = data['angular_sep']
+            angular_dd_weight = data['angular_dd_weight']
+            angular_dr_weight = data['angular_dr_weight']
 
         rp, wp_tru, wp_tru_err = measure_wp(
             random_coord, random_z, patrolled_coord, patrolled_z,
@@ -265,10 +298,11 @@ def run_wp_validation(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
         rp, wp_fba_all, wp_fba_err_all = measure_wp(
             random_coord, random_z, assigned_coord, assigned_z,
             weight = assigned_iip_weight, pip_bitweights = assigned_pip_bitweights,
+            angular_sep = angular_sep, angular_dd_weight = angular_dd_weight, angular_dr_weight = angular_dr_weight,
             njack = 32, thread = thread, label = 'Assigned'
         )
-        wp_fba, wp_fba_iip, wp_fba_pip = wp_fba_all
-        wp_fba_err, wp_fba_iip_err, wp_fba_pip_err = wp_fba_err_all
+        wp_fba, wp_fba_iip, wp_fba_pip, wp_fba_pip_ang = wp_fba_all
+        wp_fba_err, wp_fba_iip_err, wp_fba_pip_err, wp_fba_pip_ang_err = wp_fba_err_all
 
         np.savez_compressed(
             auto_file,
@@ -276,7 +310,8 @@ def run_wp_validation(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
             wp_tru = wp_tru, wp_tru_err = wp_tru_err,
             wp_fba = wp_fba, wp_fba_err = wp_fba_err,
             wp_fba_iip = wp_fba_iip, wp_fba_iip_err = wp_fba_iip_err,
-            wp_fba_pip = wp_fba_pip, wp_fba_pip_err = wp_fba_pip_err
+            wp_fba_pip = wp_fba_pip, wp_fba_pip_err = wp_fba_pip_err,
+            wp_fba_pip_ang = wp_fba_pip_ang, wp_fba_pip_ang_err = wp_fba_pip_ang_err
         )
 
     plot_params = {
@@ -297,11 +332,13 @@ def run_wp_validation(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
     plt.fill_between(rp, wp_tru - wp_tru_err, wp_tru + wp_tru_err, color = 'gray', alpha = 0.2, lw = 0, zorder = 0)
 
     plt.errorbar(rp, wp_fba, yerr = wp_fba_err, c = b_, lw = 0.8, fmt = '^', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
-                 path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')], label = 'Assigned')
-    plt.errorbar(rp, wp_fba_iip, yerr = wp_fba_iip_err, c = g_, lw = 0.8, fmt = 's', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
+                 path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')], label = 'Unweighted')
+    plt.errorbar(rp, wp_fba_iip, yerr = wp_fba_iip_err, c = g_, lw = 0.8, fmt = 'D', ms = 6, mfc = 'None', mew = 0.8, zorder = 0,
                  path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')], label = 'IIP weighted')
-    plt.errorbar(rp, wp_fba_pip, yerr = wp_fba_pip_err, c = r_, lw = 0.8, fmt = 'o', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
-                 path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')], label = 'PIP weighted')
+    plt.errorbar(rp, wp_fba_pip, yerr = wp_fba_pip_err, c = y_, lw = 0.8, fmt = 'p', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
+                 path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')], label = 'IIP + PIP weighted')
+    plt.errorbar(rp, wp_fba_pip_ang, yerr = wp_fba_pip_ang_err, c = r_, lw = 0.8, fmt = 'o', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
+                 path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')], label = 'IIP + PIP + ANG weighted')
 
     plt.xlim(0.1, 10.0)
     plt.xscale('log')
@@ -315,27 +352,31 @@ def run_wp_validation(catalog_file = CATALOG_FILE, thread = 16, dpi = 250):
     ratio_fba = wp_fba / wp_tru
     ratio_iip = wp_fba_iip / wp_tru
     ratio_pip = wp_fba_pip / wp_tru
+    ratio_pip_ang = wp_fba_pip_ang / wp_tru
     ratio_err = wp_tru_err / wp_tru
     ratio_fba_err = ratio_fba * np.sqrt((wp_fba_err / wp_fba) ** 2 + ratio_err ** 2)
     ratio_iip_err = ratio_iip * np.sqrt((wp_fba_iip_err / wp_fba_iip) ** 2 + ratio_err ** 2)
     ratio_pip_err = ratio_pip * np.sqrt((wp_fba_pip_err / wp_fba_pip) ** 2 + ratio_err ** 2)
+    ratio_pip_ang_err = ratio_pip_ang * np.sqrt((wp_fba_pip_ang_err / wp_fba_pip_ang) ** 2 + ratio_err ** 2)
 
     plt.fill_between(rp, 1.0 - ratio_err, 1.0 + ratio_err, color = 'gray', alpha = 0.2, lw = 0)
     plt.axhline(1.0, c = 'gray', lw = 1.0, ls = '--', alpha = 0.5, zorder = 0)
 
     plt.errorbar(rp, ratio_fba, yerr = ratio_fba_err, c = b_, lw = 0.8, fmt = '^', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
                  path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')])
-    plt.errorbar(rp, ratio_iip, yerr = ratio_iip_err, c = g_, lw = 0.8, fmt = 's', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
+    plt.errorbar(rp, ratio_iip, yerr = ratio_iip_err, c = g_, lw = 0.8, fmt = 'D', ms = 6, mfc = 'None', mew = 0.8, zorder = 0,
                  path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')])
-    plt.errorbar(rp, ratio_pip, yerr = ratio_pip_err, c = r_, lw = 0.8, fmt = 'o', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
+    plt.errorbar(rp, ratio_pip, yerr = ratio_pip_err, c = y_, lw = 0.8, fmt = 'p', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
+                 path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')])
+    plt.errorbar(rp, ratio_pip_ang, yerr = ratio_pip_ang_err, c = r_, lw = 0.8, fmt = 'o', ms = 8, mfc = 'None', mew = 0.8, zorder = 0,
                  path_effects = [path_effects.withStroke(linewidth = 1.6, foreground = 'w')])
 
     plt.xlim(0.1, 10.0)
     plt.xscale('log')
     plt.xlabel('$r_p$ $[h^{-1} \\mathrm{Mpc}]$', fontsize = 15, labelpad = 6.0)
     plt.ylabel('Ratio', fontsize = 15, labelpad = 6.0)
-    plt.ylim(1.0 - 1.25 * np.nanmax(np.abs(np.r_[ratio_err, ratio_fba - 1.0, ratio_iip - 1.0, ratio_pip - 1.0])),
-             1.0 + 1.25 * np.nanmax(np.abs(np.r_[ratio_err, ratio_fba - 1.0, ratio_iip - 1.0, ratio_pip - 1.0])))
+    dev = np.nanmax(np.abs(np.r_[ratio_err, ratio_fba - 1.0, ratio_iip - 1.0, ratio_pip - 1.0, ratio_pip_ang - 1.0]))
+    plt.ylim(1.0 - 1.25 * dev, 1.0 + 1.25 * dev)
 
     plt.savefig(plot_file, dpi = dpi, transparent = False, facecolor = 'w')
     plt.show()
